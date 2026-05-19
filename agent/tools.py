@@ -272,3 +272,33 @@ def execute_query(state: GraphState):
             "execution_success": False,
             "query_error": str(e)
         }
+
+def augment_query_result(state: GraphState):
+    try:
+        query_result = state.get("query_result", [])
+        user_query = state["messages"][-1]["content"]
+        
+        response = model.invoke([
+            SystemMessage(
+                content=augment_query_result_system_prompt()
+            ),
+            HumanMessage(
+                content=augment_query_result_human_prompt(user_query, query_result)
+            )
+        ])
+        
+        augmented_result = response.content.strip()
+        
+        print("\nAUGMENTED RESULT\n")
+        print(augmented_result)
+        
+        return {
+            "augmented_result": augmented_result
+        }
+        
+    except Exception as e:
+        print("ERROR IN augment_query_result")
+        traceback.print_exc()
+        return {
+            "augmented_result": "Error augmenting result: " + str(e)
+        }

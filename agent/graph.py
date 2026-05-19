@@ -16,7 +16,6 @@ from .tools import (
 
 MAX_QUERY_RETRY = 5
 
-
 builder = StateGraph(GraphState)
 
 builder.add_node("list_tables",list_tables)

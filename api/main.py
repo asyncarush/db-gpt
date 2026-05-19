@@ -1,6 +1,5 @@
 from agent.graph import agent
 
-
 tables_metadata = [
     {
         "table_name": "olist_orders_dataset",
@@ -41,8 +40,7 @@ tables_metadata = [
 ]
 
 def main():
-    agent.invoke({ 
-        "available_tables": [], 
+   response = agent.invoke({ 
         "messages": [
             { 
                 "role": "user", 
@@ -50,7 +48,7 @@ def main():
             }
         ], 
         "table_metadata": tables_metadata
-    })
+    }); print(response)
 
 
 if __name__ == "__main__":

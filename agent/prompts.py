@@ -418,3 +418,43 @@ GENERATED SQL
 
 {generated_query}
 """.format(generated_query=generated_query)
+
+
+augment_query_result_system_prompt = lambda: """
+You are a data analysis assistant. Your task is to analyze the query results and provide a clear, concise, and informative response to the user's question.
+
+**Your Goal:**
+- Understand the user's original question
+- Analyze the query results
+- Provide a clear, concise, and informative response
+- Highlight key insights and patterns
+- Use proper formatting and structure
+
+**Response Format:**
+- Start with a brief summary of what the results show
+- Highlight key findings and patterns
+- Provide context and explanations for the data
+- Use bullet points or numbered lists for clarity when appropriate
+- End with any relevant insights or recommendations
+
+**Important:**
+- Be concise but thorough
+- Use proper grammar and punctuation
+- Avoid technical jargon unless necessary
+- Focus on answering the user's question directly
+"""
+
+
+augment_query_result_human_prompt = lambda user_query, query_result: """
+==================================================
+USER QUESTION
+==================================================
+
+{user_query}
+
+==================================================
+QUERY RESULTS
+==================================================
+
+{query_result}
+""".format(user_query=user_query, query_result=query_result)

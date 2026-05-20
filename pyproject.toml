@@ -13,4 +13,5 @@ dependencies = [
     "psycopg2>=2.9.12",
     "pydantic>=2.13.4",
     "redis>=7.4.0",
+    "sqlglot>=30.8.0",
 ]

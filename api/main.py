@@ -48,8 +48,12 @@ def main():
             }
         ], 
         "table_metadata": tables_metadata
-    }); print(response)
-
+    })
 
 if __name__ == "__main__":
     main()
+
+
+
+
+#What were the top 10 product categories by revenue in Q4 2017, and how did they compare to Q3?

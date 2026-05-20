@@ -1,34 +1,65 @@
-import json
-import re
-from langchain_core.messages import AIMessage
+import sqlglot
+from sqlglot import expressions as exp
+from typing import Tuple
 
-def safe_model_invoke(llm_with_tools, messages):
-    """Wrapper to handle malformed tool calls from Llama on Groq"""
+
+FORBIDDEN_EXPRESSIONS = (
+    exp.Insert,
+    exp.Update,
+    exp.Delete,
+    exp.Drop,
+    exp.Alter,
+    exp.Create,
+    exp.TruncateTable,
+    exp.Command,
+    exp.Merge,
+)
+
+def validate_sql_security(query: str, allowed_tables: list[str]) -> Tuple[bool, str]:
     try:
-        return llm_with_tools.invoke(messages)
+        parsed = sqlglot.parse_one(
+            query,
+            dialect="postgres"
+        )
+
     except Exception as e:
-        error_str = str(e)
-        
-        # Extract the malformed function call from error
-        # Pattern: <function=tool_name={"key": "value"}>
-        # or: <function=tool_name {"key": "value"}>
-        pattern = r'<function=(\w+)[=\s](\{.*?\})\s*>'
-        match = re.search(pattern, error_str, re.DOTALL)
-        
-        if match:
-            tool_name = match.group(1)
-            try:
-                tool_args = json.loads(match.group(2))
-                # Reconstruct a proper AIMessage with tool call
-                return AIMessage(
-                    content="",
-                    tool_calls=[{
-                        "name": tool_name,
-                        "args": tool_args,
-                        "id": f"recovered_{tool_name}",
-                        "type": "tool_call"
-                    }]
-                )
-            except json.JSONDecodeError:
-                raise e
-        raise e
+        return False, f"Invalid SQL syntax: {str(e)}"
+
+    # BLOCK DML / DDL
+    for expression in FORBIDDEN_EXPRESSIONS:
+        if parsed.find(expression):
+            return False, f"Forbidden SQL operation detected: {expression.__name__}"
+
+    # ONLY SELECT / WITH ALLOWED
+
+    if not isinstance(parsed, (exp.Select, exp.With)):
+        return (False, "Only SELECT queries are allowed")
+
+    # BLOCK MULTIPLE STATEMENTS
+
+    statements = sqlglot.parse(query,dialect="postgres")
+
+    if len(statements) > 1:
+        return (False,"Multiple SQL statements are not allowed")
+
+    
+    # VALIDATE TABLES
+    query_tables = [
+        table.name
+        for table in parsed.find_all(exp.Table)
+    ]
+
+    invalid_tables = [table for table in query_tables if table not in allowed_tables]
+
+    if invalid_tables:
+        return (False, f"Unauthorized or hallucinated tables detected: {invalid_tables}")
+
+    # BLOCK SELECT *
+
+    if parsed.find(exp.Star):
+        return (
+            False,
+            "SELECT * is not allowed"
+        )
+
+    return (True,"")

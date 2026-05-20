@@ -3,7 +3,6 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage
 )
-
 from model.ChatGroq import llm_model as model
 from database.pg import db
 
@@ -12,13 +11,19 @@ from .prompts import (
     generate_query_human_prompt,
     user_query_intent_system_prompt,
     check_query_human_prompt,
-    check_query_system_prompt
+    check_query_system_prompt,
+    augment_query_result_human_prompt,
+    augment_query_result_system_prompt
 )
 
 import json
 import re
 import traceback
 
+from .utils import validate_sql_security
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 class GraphState(TypedDict, total=False):
     messages: list
@@ -36,6 +41,10 @@ class GraphState(TypedDict, total=False):
     retry_count: int
     execution_success: bool
 
+    sql_validation_passed: bool
+    sql_validation_error: str
+
+    augmented_result: str  
 
 def _parse_json_response(content: str) -> dict:
     """Safely parse JSON from model response, stripping markdown fences if present."""
@@ -179,13 +188,13 @@ def generate_query(state: GraphState):
 
         generated_sql = response.content.strip()
 
-        print("\nFIRST GENERATED QUERY\n")
-        print(generated_sql)
 
+        
         return {
-            "generated_query": generated_sql
+            "generated_query": generated_sql,
+            "retry_count": 0 # reset the count after new query generation
         }
-
+    
     except Exception as e:
         print("ERROR IN generate_query")
         traceback.print_exc()
@@ -205,7 +214,13 @@ def check_query(state: GraphState):
             }
 
         user_query = state["messages"][-1]["content"]
-        query_error = state.get("query_error") or "No Errors"
+
+        query_error = (
+            state.get("sql_validation_error")
+            or state.get("query_error")
+            or "No Errors"
+        )
+
         table_metadata = state["table_metadata"]
 
         response = model.invoke([
@@ -228,7 +243,9 @@ def check_query(state: GraphState):
         print(corrected_query)
 
         return {
-            "generated_query": corrected_query
+            "generated_query": corrected_query,
+            "sql_validation_passed": False,  # force re-validation
+            "sql_validation_error": ""
         }
 
     except Exception as e:
@@ -302,3 +319,63 @@ def augment_query_result(state: GraphState):
         return {
             "augmented_result": "Error augmenting result: " + str(e)
         }
+
+
+def validate_query(state: GraphState):
+    logger.info("STARTING validate_query NODE")
+
+    try:
+        query = state.get("generated_query", "")
+        allowed_tables = state.get("available_tables", [])
+
+        is_valid, error = validate_sql_security(
+            query=query,
+            allowed_tables=allowed_tables
+        )
+
+        if is_valid:
+            logger.info("SQL VALIDATION PASSED")
+        else:
+            logger.warning(f"SQL VALIDATION FAILED:\n{error}")
+
+        return {
+            "sql_validation_passed": is_valid,
+            "sql_validation_error": error or "",
+            "query_error": error if not is_valid else ""
+            # removed retry_count — validation no longer retries
+        }
+
+    except Exception as e:
+        logger.exception("ERROR IN validate_query NODE")
+        return {
+            "sql_validation_passed": False,
+            "sql_validation_error": str(e),
+            "query_error": str(e)
+        }
+
+
+def handle_failure(state: GraphState):
+    """Immediately returns a user-facing message on validation or execution failure."""
+
+    validation_error = state.get("sql_validation_error", "")
+    query_error = state.get("query_error", "")
+    retry_count = state.get("retry_count", 0)
+
+    if validation_error:
+        message = (
+            f"Your request could not be processed because the generated SQL "
+            f"failed security validation.\n\nReason: {validation_error}\n\n"
+            f"DML operations (INSERT, UPDATE, DELETE, DROP, etc.) and "
+            f"SELECT * are not allowed."
+        )
+    else:
+        message = (
+            f"Your request could not be processed after {retry_count} attempts.\n\n"
+            f"Reason: {query_error or 'Unknown error'}"
+        )
+
+    logger.warning(f"HANDLE FAILURE: {message}")
+
+    return {
+        "augmented_result": message
+    }
